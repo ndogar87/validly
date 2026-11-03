@@ -103,6 +103,8 @@ validly/
 │   ├── env.ts                    # Environment variable validation
 │   ├── ai.ts                     # Claude analysis + optional Insforge storage
 │   ├── reddit.ts                 # Reddit scraping & parsing
+│   ├── runs.ts                   # Saved run storage (JSON files)
+│   ├── usage.ts                  # Per-run Decodo + Claude cost tracking
 │   └── types.ts                  # TypeScript type definitions
 ├── public/                       # Static assets
 ├── .env.local                    # Environment variables (create this)
@@ -176,6 +178,8 @@ Analyzes a subreddit for SaaS opportunities.
 | `DECODO_PROXY_POOL` | ❌ No | `premium` | Proxy pool type for scraping |
 | `DECODO_HEADLESS_MODE` | ❌ No | `html` | Headless browser mode |
 | `DECODO_TIMEOUT_MS` | ❌ No | `60000` | Scraping timeout in milliseconds |
+| `DECODO_COST_PER_1K` | ❌ No | `0.50` | Your Decodo plan price per 1K requests, used for run cost |
+| `DATA_DIR` | ❌ No | `./data` | Where saved runs are stored (`/app/data` volume in Docker) |
 | `INSFORGE_TIMEOUT_MS` | ❌ No | `90000` | Insforge storage timeout in milliseconds |
 
 ## 📝 Available Scripts

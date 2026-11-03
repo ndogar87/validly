@@ -33,8 +33,37 @@ export interface SaasIdea {
   source_threads: SourceThread[];
 }
 
-export interface AnalyzeIdeasResponse {
+export interface RunCost {
+  decodo: {
+    requests: number;
+    usd: number;
+  };
+  claude: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    usd: number | null;
+  } | null;
+  totalUsd: number;
+}
+
+export interface SavedRun {
+  id: string;
   subreddit: string;
-  source: StructuredRedditData;
+  createdAt: string;
+  durationMs: number;
+  status: "success" | "error";
+  error?: string;
+  source: StructuredRedditData | null;
   ideas: SaasIdea[];
+  cost: RunCost;
+}
+
+export interface RunSummary {
+  id: string;
+  subreddit: string;
+  createdAt: string;
+  status: SavedRun["status"];
+  ideaCount: number;
+  totalUsd: number;
 }

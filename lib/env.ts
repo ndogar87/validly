@@ -20,6 +20,7 @@ const serverEnvSchema = z.object({
   DECODO_PROXY_POOL: z.string().trim().optional(),
   DECODO_HEADLESS_MODE: z.string().trim().optional(),
   DECODO_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  DECODO_COST_PER_1K: z.coerce.number().nonnegative().optional(),
   INSFORGE_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
 });
 
@@ -28,6 +29,7 @@ export type ServerEnv = {
   decodoProxyPool: string;
   decodoHeadlessMode: string;
   decodoTimeoutMs: number;
+  decodoCostPer1k: number;
   anthropicApiKey: string;
   anthropicModel: string;
   anthropicWorkspaceId?: string;
@@ -55,6 +57,7 @@ export function getServerEnv(): ServerEnv {
     DECODO_PROXY_POOL: process.env.DECODO_PROXY_POOL,
     DECODO_HEADLESS_MODE: process.env.DECODO_HEADLESS_MODE,
     DECODO_TIMEOUT_MS: process.env.DECODO_TIMEOUT_MS,
+    DECODO_COST_PER_1K: process.env.DECODO_COST_PER_1K,
     INSFORGE_TIMEOUT_MS: process.env.INSFORGE_TIMEOUT_MS,
   });
 
@@ -64,6 +67,8 @@ export function getServerEnv(): ServerEnv {
     decodoHeadlessMode: parsedEnv.DECODO_HEADLESS_MODE || "html",
     // Headless Reddit renders regularly take 20-40s.
     decodoTimeoutMs: parsedEnv.DECODO_TIMEOUT_MS ?? 60000,
+    // Web Data API Free / $19 plan rate per 1K requests.
+    decodoCostPer1k: parsedEnv.DECODO_COST_PER_1K ?? 0.5,
     anthropicApiKey: parsedEnv.ANTHROPIC_API_KEY,
     anthropicModel: parsedEnv.ANTHROPIC_MODEL || "claude-opus-5-5",
     anthropicWorkspaceId: parsedEnv.ANTHROPIC_WORKSPACE_ID || undefined,

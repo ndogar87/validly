@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { AnalyzeIdeasResponse, RedditPost, SaasIdea } from "@/lib/types";
+import type { RedditPost, RunCost, RunSummary, SaasIdea, SavedRun } from "@/lib/types";
 
 const EXAMPLE_SUBREDDITS = ["saas", "smallbusiness", "freelance", "marketing"];
 const LOADING_PHASES = [
@@ -28,6 +28,129 @@ function scoreTone(score: number): string {
   }
 
   return "border-rose-300 bg-rose-50 text-rose-700";
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(value >= 1 ? 2 : 4)}`;
+}
+
+function formatRunDate(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function setRunInUrl(id: string | null) {
+  const url = new URL(window.location.href);
+  if (id) {
+    url.searchParams.set("run", id);
+  } else {
+    url.searchParams.delete("run");
+  }
+  window.history.replaceState(null, "", url);
+}
+
+function CostCard({ cost }: { cost: RunCost }) {
+  return (
+    <div className="glass-panel grid gap-4 rounded-[24px] p-5 sm:grid-cols-3">
+      <div>
+        <p className="font-mono text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Decodo</p>
+        <p className="mt-2 text-2xl font-semibold text-slate-900">{formatUsd(cost.decodo.usd)}</p>
+        <p className="mt-1 text-sm text-slate-500">{cost.decodo.requests} scrape requests</p>
+      </div>
+      <div>
+        <p className="font-mono text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Claude</p>
+        <p className="mt-2 text-2xl font-semibold text-slate-900">
+          {cost.claude ? (cost.claude.usd === null ? "Unknown" : formatUsd(cost.claude.usd)) : formatUsd(0)}
+        </p>
+        <p className="mt-1 text-sm text-slate-500">
+          {cost.claude
+            ? `${cost.claude.inputTokens.toLocaleString()} in / ${cost.claude.outputTokens.toLocaleString()} out · ${cost.claude.model}`
+            : "Not called"}
+        </p>
+      </div>
+      <div>
+        <p className="font-mono text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Total</p>
+        <p className="mt-2 text-2xl font-semibold text-slate-900">{formatUsd(cost.totalUsd)}</p>
+        <p className="mt-1 text-sm text-slate-500">Estimated from usage and list prices</p>
+      </div>
+    </div>
+  );
+}
+
+function RunHistory({
+  runs,
+  activeId,
+  disabled,
+  onOpen,
+  onDelete,
+}: {
+  runs: RunSummary[];
+  activeId: string | null;
+  disabled: boolean;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (runs.length === 0) {
+    return null;
+  }
+
+  const totalSpent = runs.reduce((sum, run) => sum + run.totalUsd, 0);
+
+  return (
+    <section className="glass-panel mt-6 rounded-[28px] p-5 sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="font-mono text-[0.72rem] uppercase tracking-[0.24em] text-slate-500">
+            Previous Runs
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">
+            {runs.length} saved {runs.length === 1 ? "run" : "runs"}
+          </h2>
+        </div>
+        <p className="text-sm text-slate-500">{formatUsd(totalSpent)} spent in total</p>
+      </div>
+
+      <div className="mt-4 grid max-h-80 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+        {runs.map((run) => (
+          <div
+            key={run.id}
+            className={`flex items-center gap-2 rounded-2xl border px-4 py-3 transition ${
+              run.id === activeId
+                ? "border-orange-300 bg-orange-50"
+                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => onOpen(run.id)}
+              disabled={disabled}
+              className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
+            >
+              <span className="block truncate font-semibold text-slate-900">r/{run.subreddit}</span>
+              <span className="block text-sm text-slate-500">
+                {formatRunDate(run.createdAt)} ·{" "}
+                {run.status === "success" ? `${run.ideaCount} ideas` : <span className="text-rose-600">Failed</span>} ·{" "}
+                {formatUsd(run.totalUsd)}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(run.id)}
+              disabled={disabled}
+              aria-label={`Delete run for r/${run.subreddit}`}
+              className="shrink-0 rounded-full px-2 py-1 text-sm text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed"
+            >
+              Delete
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function Field({
@@ -188,7 +311,8 @@ function ThreadCard({ post }: { post: RedditPost }) {
 export default function Home() {
   const [subreddit, setSubreddit] = useState("saas");
   const [lastSubreddit, setLastSubreddit] = useState("saas");
-  const [result, setResult] = useState<AnalyzeIdeasResponse | null>(null);
+  const [result, setResult] = useState<SavedRun | null>(null);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
@@ -215,10 +339,70 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [loading]);
 
+  async function loadRuns() {
+    try {
+      const response = await fetch("/api/runs", { cache: "no-store" });
+      const payload = (await response.json()) as { runs: RunSummary[] };
+      setRuns(payload.runs);
+    } catch {
+      // History is a convenience; the page still works without it.
+    }
+  }
+
+  function showRun(run: SavedRun) {
+    setResult(run);
+    setError(run.status === "error" ? run.error ?? "Analysis failed." : null);
+    setSubreddit(run.subreddit);
+    setLastSubreddit(run.subreddit);
+    setRunInUrl(run.id);
+  }
+
+  async function openRun(id: string) {
+    try {
+      const response = await fetch(`/api/runs/${id}`, { cache: "no-store" });
+
+      if (!response.ok) {
+        setRunInUrl(null);
+        return;
+      }
+
+      showRun((await response.json()) as SavedRun);
+    } catch {
+      setError("Could not load that saved run.");
+    }
+  }
+
+  async function removeRun(id: string) {
+    if (!window.confirm("Delete this saved run?")) {
+      return;
+    }
+
+    await fetch(`/api/runs/${id}`, { method: "DELETE" });
+
+    if (result?.id === id) {
+      setResult(null);
+      setError(null);
+      setRunInUrl(null);
+    }
+
+    await loadRuns();
+  }
+
+  useEffect(() => {
+    const runId = new URLSearchParams(window.location.search).get("run");
+    void loadRuns();
+    if (runId) {
+      void openRun(runId);
+    }
+    // Runs once on page load to restore history and any ?run= in the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function runAnalysis(nextSubreddit = subreddit) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setRunInUrl(null);
 
     try {
       const response = await fetch("/api/analyze", {
@@ -231,18 +415,23 @@ export default function Home() {
         }),
       });
 
-      const payload = (await response.json()) as AnalyzeIdeasResponse & { error?: string };
+      const payload = (await response.json()) as SavedRun & { error?: string; run?: SavedRun };
 
-      if (!response.ok) {
+      if (payload.run) {
+        // Failed runs are saved too, so their cost stays visible.
+        showRun(payload.run);
+      } else if (!response.ok) {
         throw new Error(payload.error ?? "Request failed.");
+      } else {
+        showRun(payload);
       }
 
-      setResult(payload);
       setLastSubreddit(nextSubreddit);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unexpected request error.");
     } finally {
       setLoading(false);
+      void loadRuns();
     }
   }
 
@@ -262,7 +451,7 @@ export default function Home() {
                 Turn noisy Reddit threads into validated SaaS bets.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-                Validly scrapes weekly Reddit discussions with Decodo, structures the strongest complaints, and sends them through Insforge AI to surface market gaps, demand, and stronger product angles.
+                Validly scrapes weekly Reddit discussions with Decodo, structures the strongest complaints, and sends them through Claude to surface market gaps, demand, and stronger product angles.
               </p>
             </div>
           </div>
@@ -322,7 +511,7 @@ export default function Home() {
         {[
           "Decodo scrapes the top weekly subreddit page and post threads.",
           "Cheerio structures titles plus top 2–3 comments from up to 8 higher-signal posts.",
-          "Insforge scores each opportunity and returns strict JSON only.",
+          "Claude scores each opportunity and returns strict JSON only.",
         ].map((item) => (
           <div key={item} className="glass-panel rounded-[24px] px-5 py-4 text-sm leading-6 text-slate-600">
             {item}
@@ -330,10 +519,24 @@ export default function Home() {
         ))}
       </section>
 
+      <RunHistory
+        runs={runs}
+        activeId={result?.id ?? null}
+        disabled={loading}
+        onOpen={openRun}
+        onDelete={removeRun}
+      />
+
       {error ? (
         <section className="glass-panel mt-6 rounded-[28px] border border-rose-200 bg-rose-50/80 p-5 text-rose-700">
           <p className="font-semibold">Analysis failed</p>
           <p className="mt-2 text-sm leading-6">{error}</p>
+          {result?.status === "error" ? (
+            <p className="mt-2 text-sm leading-6">
+              This attempt still cost {formatUsd(result.cost.totalUsd)} ({result.cost.decodo.requests} Decodo
+              requests{result.cost.claude ? ", plus Claude" : ""}).
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -428,12 +631,12 @@ export default function Home() {
         </section>
       ) : null}
 
-      {result ? (
+      {result?.status === "success" && result.source ? (
         <section className="mt-6 space-y-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="font-mono text-[0.72rem] uppercase tracking-[0.24em] text-slate-500">
-                Results
+                Results · {formatRunDate(result.createdAt)} · {Math.round(result.durationMs / 1000)}s
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
                 r/{result.subreddit} produced {result.ideas.length} validated ideas
@@ -443,6 +646,8 @@ export default function Home() {
               Analyzed {result.source.posts.length} deduplicated source threads and their strongest comments.
             </p>
           </div>
+
+          <CostCard cost={result.cost} />
 
           <div className="grid gap-5 xl:grid-cols-2">
             {result.ideas.map((idea) => (

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getServerEnv } from "@/lib/env";
 import type { SaasIdea, StructuredRedditData } from "@/lib/types";
+import { recordClaudeUsage } from "@/lib/usage";
 
 const AI_POST_LIMIT = 8;
 const AI_COMMENT_LIMIT = 3;
@@ -277,6 +278,8 @@ export async function analyzeWithAI(data: StructuredRedditData): Promise<SaasIde
   const requestElapsed = Date.now() - requestStart;
   console.log(`   ⏱️  AI Response Time: ${requestElapsed}ms (${(requestElapsed / 1000).toFixed(2)}s)`);
   console.log(`   Tokens: ${response.usage.input_tokens} in / ${response.usage.output_tokens} out`);
+  // response.model is the model that actually answered, which differs if a fallback ran.
+  recordClaudeUsage(response.model, response.usage.input_tokens, response.usage.output_tokens);
 
   console.log(`\n📤 [RESPONSE] Processing AI response...`);
   const rawContent = extractMessageContent(response);

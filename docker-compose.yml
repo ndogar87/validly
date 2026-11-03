@@ -1,0 +1,13 @@
+name: validly
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3200:3000"
+    volumes:
+      - validly-data:/app/data
+
+volumes:
+  validly-data:

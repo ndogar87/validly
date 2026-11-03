@@ -3,6 +3,7 @@ import type { AnyNode } from "domhandler";
 
 import { getServerEnv } from "@/lib/env";
 import type { RedditPost, StructuredRedditData } from "@/lib/types";
+import { recordDecodoRequest } from "@/lib/usage";
 
 // Web Data API keys use Bearer auth on the v1 endpoint; legacy Basic tokens still use v2.
 const DECODO_ENDPOINT = "https://data.decodo.com/v1/scrape";
@@ -186,6 +187,9 @@ async function requestDecodo(url: string, strategy: DecodoStrategy): Promise<str
       `Decodo request failed (${strategy.name}): ${response.status} ${rawText.slice(0, 180)}`,
     );
   }
+
+  // Decodo bills every successful request, whether or not it yields usable HTML.
+  recordDecodoRequest();
 
   if (rawText.trim().startsWith("<")) {
     console.log(`   ✅ Direct HTML response detected`);
