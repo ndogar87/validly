@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { analyzeWithAI } from "@/lib/insforge";
+import { analyzeWithAI } from "@/lib/ai";
 import { structureRedditData } from "@/lib/reddit";
 
 export const runtime = "nodejs";

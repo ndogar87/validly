@@ -4,7 +4,9 @@ import type { AnyNode } from "domhandler";
 import { getServerEnv } from "@/lib/env";
 import type { RedditPost, StructuredRedditData } from "@/lib/types";
 
-const DECODO_ENDPOINT = "https://scraper-api.decodo.com/v2/scrape";
+// Web Data API keys use Bearer auth on the v1 endpoint; legacy Basic tokens still use v2.
+const DECODO_ENDPOINT = "https://data.decodo.com/v1/scrape";
+const LEGACY_DECODO_ENDPOINT = "https://scraper-api.decodo.com/v2/scrape";
 const MAX_POSTS = 8;
 const MAX_COMMENTS = 3;
 const COMMENT_FETCH_CONCURRENCY = 4;
@@ -22,18 +24,15 @@ function buildDecodoAuthorizationHeader(apiKey: string): string {
     return apiKey;
   }
 
-  return `Basic ${apiKey}`;
+  return `Bearer ${apiKey}`;
 }
 
+function resolveDecodoEndpoint(apiKey: string): string {
+  return /^Basic\s+/i.test(apiKey) ? LEGACY_DECODO_ENDPOINT : DECODO_ENDPOINT;
+}
+
+// Reddit only returns rendered posts with headless mode, so every strategy sends it.
 const decodoStrategies: DecodoStrategy[] = [
-  {
-    name: "web-scraping-api-fast",
-    headers: (apiKey) => ({ Authorization: buildDecodoAuthorizationHeader(apiKey) }),
-    body: (url, proxyPool) => ({
-      url,
-      proxy_pool: proxyPool,
-    }),
-  },
   {
     name: "web-scraping-api",
     headers: (apiKey) => ({ Authorization: buildDecodoAuthorizationHeader(apiKey) }),
@@ -86,10 +85,11 @@ function toScrapeableRedditUrl(href: string): string {
 
   try {
     const url = new URL(absoluteUrl);
-    url.hostname = "old.reddit.com";
+    // old.reddit.com now serves a "Welcome to Reddit" interstitial to scrapers.
+    url.hostname = "www.reddit.com";
     return url.toString();
   } catch {
-    return absoluteUrl.replace("www.reddit.com", "old.reddit.com");
+    return absoluteUrl.replace("old.reddit.com", "www.reddit.com");
   }
 }
 
@@ -161,7 +161,7 @@ async function requestDecodo(url: string, strategy: DecodoStrategy): Promise<str
   console.log(`   Request Body:`, JSON.stringify(requestBody, null, 2));
   
   const startTime = Date.now();
-  const response = await fetch(DECODO_ENDPOINT, {
+  const response = await fetch(resolveDecodoEndpoint(decodoApiKey), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -437,7 +437,7 @@ async function mapInBatches<T, R>(
 
 export async function scrapeReddit(subreddit: string): Promise<string> {
   const normalizedSubreddit = subreddit.trim().replace(/^r\//i, "");
-  const url = `https://old.reddit.com/r/${normalizedSubreddit}/top/?t=week`;
+  const url = `https://www.reddit.com/r/${normalizedSubreddit}/top/?t=week`;
 
   console.log(`\n\n${'='.repeat(80)}`);
   console.log(`🚀 [REDDIT SCRAPER] Starting scrape for r/${normalizedSubreddit}`);

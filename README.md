@@ -11,7 +11,7 @@ Validly is a Next.js application that scrapes weekly Reddit discussions from any
 ## ✨ Features
 
 - 🔍 **Smart Reddit Scraping** - Fetches top posts and comments from any subreddit
-- 🤖 **AI-Powered Analysis** - Uses Insforge AI to identify actionable SaaS ideas
+- 🤖 **AI-Powered Analysis** - Uses Claude to identify actionable SaaS ideas
 - 📊 **Opportunity Scoring** - Rates each idea with market viability and urgency scores
 - 💡 **Market Intelligence** - Extracts target customers, pricing insights, and competitors
 - 🎨 **Clean UI** - Beautiful, responsive interface built with Tailwind CSS v4
@@ -21,14 +21,14 @@ Validly is a Next.js application that scrapes weekly Reddit discussions from any
 
 1. **Scrape** - Uses Decodo API to fetch Reddit HTML from top weekly posts
 2. **Structure** - Parses titles and top comments with Cheerio
-3. **Analyze** - Sends structured data to Insforge AI for market analysis
+3. **Analyze** - Sends structured data to Claude for market analysis
 4. **Score** - Returns validated SaaS ideas with viability scores and market insights
 
 ## 📋 Prerequisites
 
 - Node.js 20+ installed
 - A [Decodo](https://visit.decodo.com/oNza7b) API key (for Reddit scraping)
-- An [Insforge](https://insforge.dev) API key (for AI analysis)
+- An [Anthropic](https://console.anthropic.com) API key (for AI analysis)
 
 ## 🛠️ Installation
 
@@ -48,19 +48,22 @@ Validly is a Next.js application that scrapes weekly Reddit discussions from any
    Create a `.env.local` file in the root directory:
    ```bash
    # Required
-   DECODO_API_KEY=your_decodo_api_key_here
-   INSFORGE_API_KEY=your_insforge_api_key_here
+   DECODO_API_KEY=your_decodo_web_data_api_key_here
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-   # Optional - Customize Insforge configuration
-   INSFORGE_URL=https://api.insforge.dev
-   INSFORGE_MODEL=openai/gpt-4o-mini
+   # Optional - Claude model (defaults to claude-opus-5-5)
+   ANTHROPIC_MODEL=claude-opus-5-5
+
+   # Optional - Store results in an Insforge table
+   INSFORGE_API_KEY=your_insforge_api_key_here
+   INSFORGE_URL=https://your-project.insforge.app
    INSFORGE_RESULTS_TABLE=validated_saas_ideas
+   INSFORGE_TIMEOUT_MS=90000
 
    # Optional - Customize Decodo scraping behavior
-   DECODO_PROXY_POOL=residential
-   DECODO_HEADLESS_MODE=true
-   DECODO_TIMEOUT_MS=30000
-   INSFORGE_TIMEOUT_MS=60000
+   DECODO_PROXY_POOL=premium
+   DECODO_HEADLESS_MODE=html
+   DECODO_TIMEOUT_MS=60000
    ```
 
 4. **Run the development server**
@@ -80,11 +83,10 @@ Validly is a Next.js application that scrapes weekly Reddit discussions from any
 3. Navigate to your dashboard
 4. Copy your API key
 
-### Insforge API Key
-1. Visit [insforge.dev](https://insforge.dev)
-2. Create an account
-3. Go to your project settings
-4. Generate and copy your API key
+### Anthropic API Key
+1. Visit [console.anthropic.com](https://console.anthropic.com) (a Claude.ai subscription does not include API access)
+2. Add API credits under Billing
+3. Create a key under API Keys
 
 ## 📁 Project Structure
 
@@ -99,7 +101,7 @@ validly/
 │   └── page.tsx                  # Main UI page
 ├── lib/
 │   ├── env.ts                    # Environment variable validation
-│   ├── insforge.ts               # Insforge AI integration
+│   ├── ai.ts                     # Claude analysis + optional Insforge storage
 │   ├── reddit.ts                 # Reddit scraping & parsing
 │   └── types.ts                  # TypeScript type definitions
 ├── public/                       # Static assets
@@ -156,7 +158,7 @@ Analyzes a subreddit for SaaS opportunities.
 - **Language:** TypeScript
 - **Styling:** Tailwind CSS v4
 - **Web Scraping:** Cheerio + Decodo API
-- **AI Analysis:** Insforge SDK
+- **AI Analysis:** Claude (Anthropic SDK)
 - **Validation:** Zod
 - **JSON Repair:** jsonrepair
 
@@ -164,15 +166,17 @@ Analyzes a subreddit for SaaS opportunities.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DECODO_API_KEY` | ✅ Yes | - | Your Decodo API key for Reddit scraping |
-| `INSFORGE_API_KEY` | ✅ Yes | - | Your Insforge API key for AI analysis |
+| `DECODO_API_KEY` | ✅ Yes | - | Your Decodo Web Data API key (Bearer). Prefix with `Basic ` to use a legacy Scraper API token |
+| `ANTHROPIC_API_KEY` | ✅ Yes | - | Your Anthropic API key for AI analysis |
+| `ANTHROPIC_MODEL` | ❌ No | `claude-opus-5-5` | Claude model to use |
+| `ANTHROPIC_WORKSPACE_ID` | ❌ No | - | Workspace ID, only needed if your API key is not scoped to a workspace |
+| `INSFORGE_API_KEY` | ❌ No | - | Insforge key, only needed for result storage |
 | `INSFORGE_URL` | ❌ No | `https://api.insforge.dev` | Insforge API base URL |
-| `INSFORGE_MODEL` | ❌ No | `openai/gpt-4o-mini` | AI model to use |
 | `INSFORGE_RESULTS_TABLE` | ❌ No | - | Optional database table name |
-| `DECODO_PROXY_POOL` | ❌ No | `residential` | Proxy pool type for scraping |
-| `DECODO_HEADLESS_MODE` | ❌ No | `true` | Headless browser mode |
-| `DECODO_TIMEOUT_MS` | ❌ No | `30000` | Scraping timeout in milliseconds |
-| `INSFORGE_TIMEOUT_MS` | ❌ No | `60000` | AI analysis timeout in milliseconds |
+| `DECODO_PROXY_POOL` | ❌ No | `premium` | Proxy pool type for scraping |
+| `DECODO_HEADLESS_MODE` | ❌ No | `html` | Headless browser mode |
+| `DECODO_TIMEOUT_MS` | ❌ No | `60000` | Scraping timeout in milliseconds |
+| `INSFORGE_TIMEOUT_MS` | ❌ No | `90000` | Insforge storage timeout in milliseconds |
 
 ## 📝 Available Scripts
 
@@ -200,7 +204,7 @@ This project is open source and available under the [MIT License](LICENSE).
 ## 🙏 Acknowledgments
 
 - [Decodo](https://visit.decodo.com/oNza7b) for powerful web scraping API
-- [Insforge](https://insforge.dev) for AI infrastructure
+- [Anthropic](https://www.anthropic.com) for Claude
 - [Next.js](https://nextjs.org) team for the amazing framework
 
 ---

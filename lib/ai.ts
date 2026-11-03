@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@insforge/sdk";
 import { jsonrepair } from "jsonrepair";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import type { SaasIdea, StructuredRedditData } from "@/lib/types";
 
 const AI_POST_LIMIT = 8;
 const AI_COMMENT_LIMIT = 3;
+const AI_MAX_TOKENS = 32000;
 
 const sourceThreadSchema = z.object({
   title: z.string().trim().min(1),
@@ -84,38 +86,27 @@ OUTPUT STRICT JSON:
 Do NOT return text outside JSON.
 Keep output concise but meaningful.`;
 
-function extractMessageContent(response: unknown): string {
-  const record = response as Record<string, unknown>;
-
-  const directContent =
-    (record?.choices as Array<Record<string, unknown>> | undefined)?.[0]?.message &&
-    typeof ((record.choices as Array<Record<string, unknown>>)[0].message as Record<string, unknown>).content === "string"
-      ? (((record.choices as Array<Record<string, unknown>>)[0].message as Record<string, unknown>).content as string)
-      : undefined;
-
-  if (directContent) {
-    return directContent;
+function extractMessageContent(response: Anthropic.Beta.BetaMessage): string {
+  if (response.stop_reason === "refusal") {
+    throw new Error(
+      `Claude declined to analyze this data${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}.`,
+    );
   }
 
-  const nestedData = record?.data as Record<string, unknown> | undefined;
-  const nestedChoices = nestedData?.choices as Array<Record<string, unknown>> | undefined;
-
-  if (
-    nestedChoices?.[0]?.message &&
-    typeof (nestedChoices[0].message as Record<string, unknown>).content === "string"
-  ) {
-    return (nestedChoices[0].message as Record<string, unknown>).content as string;
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("Claude response was cut off before the JSON finished. Try again.");
   }
 
-  if (typeof nestedData?.response === "string") {
-    return nestedData.response;
+  const text = response.content
+    .filter((block): block is Anthropic.Beta.BetaTextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+
+  if (!text) {
+    throw new Error("Claude response did not contain any text.");
   }
 
-  if (typeof record?.response === "string") {
-    return record.response;
-  }
-
-  throw new Error("Insforge AI response did not contain a readable message payload.");
+  return text;
 }
 
 function parseJsonArray(raw: string): SaasIdea[] {
@@ -124,7 +115,7 @@ function parseJsonArray(raw: string): SaasIdea[] {
   const end = withoutCodeFence.lastIndexOf("]");
 
   if (start === -1 || end === -1 || end < start) {
-    throw new Error("Insforge AI response did not include a JSON array.");
+    throw new Error("AI response did not include a JSON array.");
   }
 
   const candidate = withoutCodeFence.slice(start, end + 1);
@@ -137,8 +128,8 @@ function parseJsonArray(raw: string): SaasIdea[] {
     } catch (repairError) {
       throw new Error(
         repairError instanceof Error
-          ? `Failed to parse Insforge AI JSON: ${repairError.message}`
-          : "Failed to parse Insforge AI JSON.",
+          ? `Failed to parse AI JSON: ${repairError.message}`
+          : "Failed to parse AI JSON.",
       );
     }
   }
@@ -187,9 +178,15 @@ async function maybeStoreIdeas(
     return;
   }
   
+  const { insforgeApiKey, insforgeUrl, insforgeTimeoutMs } = getServerEnv();
+
+  if (!insforgeApiKey) {
+    console.log(`\n💾 [STORAGE] INSFORGE_API_KEY not set, skipping persistence`);
+    return;
+  }
+
   console.log(`\n💾 [STORAGE] Persisting ${ideas.length} ideas to table: ${table}`);
 
-  const { insforgeApiKey, insforgeUrl, insforgeTimeoutMs } = getServerEnv();
   const insforge = createClient({
     baseUrl: insforgeUrl,
     anonKey: insforgeApiKey,
@@ -235,55 +232,51 @@ export async function analyzeWithAI(data: StructuredRedditData): Promise<SaasIde
   const env = getServerEnv();
   
   console.log(`\n⚙️  [CONFIG]`);
-  console.log(`   Insforge URL: ${env.insforgeUrl}`);
-  console.log(`   Model: ${env.insforgeModel}`);
-  console.log(`   Timeout: ${env.insforgeTimeoutMs}ms`);
+  console.log(`   Model: ${env.anthropicModel}`);
   console.log(`   Results Table: ${env.insforgeResultsTable || 'Not configured'}`);
-  
+
   const compactData = compactStructuredData(data);
   const payloadSize = JSON.stringify(compactData).length;
   console.log(`   Payload Size: ${payloadSize} bytes (${(payloadSize / 1024).toFixed(2)} KB)`);
-  
-  console.log(`\n🔧 [CLIENT] Creating Insforge client...`);
-  const insforge = createClient({
-    baseUrl: env.insforgeUrl,
-    anonKey: env.insforgeApiKey,
-    isServerMode: true,
-    timeout: env.insforgeTimeoutMs,
-    retryCount: 1,
-    headers: {
-      Authorization: `Bearer ${env.insforgeApiKey}`,
-      "X-API-Key": env.insforgeApiKey,
-    },
-  });
-  console.log(`   ✅ Client created`);
 
-  console.log(`\n🚀 [API CALL] Sending request to AI...`);
-  console.log(`   Model: ${env.insforgeModel}`);
-  console.log(`   Temperature: 0.2`);
-  console.log(`   Max Tokens: 2200`);
+  const anthropic = new Anthropic({
+    apiKey: env.anthropicApiKey,
+    // Organization-level keys (not scoped to a workspace) must name one per request.
+    defaultHeaders: env.anthropicWorkspaceId
+      ? { "anthropic-workspace-id": env.anthropicWorkspaceId }
+      : undefined,
+  });
+
+  console.log(`\n🚀 [API CALL] Sending request to Claude...`);
+  console.log(`   Model: ${env.anthropicModel}`);
+  console.log(`   Max Tokens: ${AI_MAX_TOKENS}`);
   console.log(`   System Prompt Length: ${SYSTEM_PROMPT.length} chars`);
   console.log(`   User Content Length: ${JSON.stringify(compactData).length} chars`);
-  
+
   const requestStart = Date.now();
-  const response = await insforge.ai.chat.completions.create({
-    model: env.insforgeModel,
-    temperature: 0.2,
-    maxTokens: 2200,
-    messages: [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: JSON.stringify(compactData),
-      },
-    ],
-  } as never);
-  
+  // Streamed so long thinking + output can't hit the non-streaming HTTP timeout.
+  const response = await anthropic.beta.messages
+    .stream({
+      model: env.anthropicModel,
+      max_tokens: AI_MAX_TOKENS,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
+      // Re-runs a safety-classifier decline on Anthropic's recommended fallback model.
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify(compactData),
+        },
+      ],
+    })
+    .finalMessage();
+
   const requestElapsed = Date.now() - requestStart;
   console.log(`   ⏱️  AI Response Time: ${requestElapsed}ms (${(requestElapsed / 1000).toFixed(2)}s)`);
+  console.log(`   Tokens: ${response.usage.input_tokens} in / ${response.usage.output_tokens} out`);
 
   console.log(`\n📤 [RESPONSE] Processing AI response...`);
   const rawContent = extractMessageContent(response);
